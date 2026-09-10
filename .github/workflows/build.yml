@@ -1,0 +1,69 @@
+name: CUgold BUILD - FIX SDKMANAGER PATH
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y zip unzip libffi-dev libssl-dev
+
+      - name: Install Buildozer + Cython
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython==0.29.36 virtualenv
+
+      - name: FIX sdkmanager path does not exist + Aidl not found
+        run: |
+          echo "Creating Android SDK structure for Buildozer..."
+          SDK_ROOT=~/.buildozer/android/platform/android-sdk
+          mkdir -p $SDK_ROOT/cmdline-tools
+          cd $SDK_ROOT/cmdline-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O tools.zip
+          unzip -q tools.zip
+          mkdir -p latest
+          mv cmdline-tools/* latest/ 2>/dev/null || true
+          mv lib bin NOTICE.txt source.properties latest/ 2>/dev/null || true
+          # CRITICAL FIX for your screenshot line 54
+          mkdir -p $SDK_ROOT/tools/bin
+          ln -sf $SDK_ROOT/cmdline-tools/latest/bin/sdkmanager $SDK_ROOT/tools/bin/sdkmanager
+          ln -sf $SDK_ROOT/cmdline-tools/latest/bin/avdmanager $SDK_ROOT/tools/bin/avdmanager
+          chmod +x $SDK_ROOT/cmdline-tools/latest/bin/* $SDK_ROOT/tools/bin/*
+          export ANDROID_SDK_ROOT=$SDK_ROOT
+          export PATH=$SDK_ROOT/cmdline-tools/latest/bin:$PATH
+          yes | sdkmanager --licenses
+          sdkmanager --install "build-tools;33.0.2" "platforms;android-33" "platform-tools" "ndk;25.1.8937393"
+          echo "=== Build-tools 33.0.2 installed ==="
+          ls $SDK_ROOT/build-tools/33.0.2/ | grep aidl
+          echo "=== NDK 25b installed ==="
+          ls $SDK_ROOT/ndk/ | head
+
+      - name: Build DEBUG APK
+        run: |
+          rm -rf bin .buildozer/android/app
+          buildozer -v android debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUgold-18-AUTO-DEBUG-APK
+          path: bin/*.apk
